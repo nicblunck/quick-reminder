@@ -1,0 +1,8 @@
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.DS_Store
+
+# Generated from project.yml by xcodegen — run `xcodegen generate` to recreate.
+QuickReminders.xcodeproj/

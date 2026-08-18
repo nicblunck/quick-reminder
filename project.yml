@@ -1,0 +1,102 @@
+name: QuickReminders
+options:
+  bundleIdPrefix: com.nicolasblunck
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+packages:
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: 2.2.1
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # A real Development identity is required, not ad-hoc ("-"): a sandboxed app
+    # signed ad-hoc has its XPC connection to the Reminders daemon refused with
+    # Mach error 4099, and the TCC prompt never appears.
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "-"
+    ENABLE_HARDENED_RUNTIME: YES
+
+targets:
+  QuickReminders:
+    type: application
+    platform: macOS
+    sources:
+      - path: QuickReminders
+        excludes:
+          - "Resources/Info.plist"
+          - "Resources/QuickReminders.entitlements"
+    dependencies:
+      - package: KeyboardShortcuts
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nicolasblunck.QuickReminders
+        PRODUCT_NAME: QuickReminders
+        INFOPLIST_FILE: QuickReminders/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: QuickReminders/Resources/QuickReminders.entitlements
+        ENABLE_APP_SANDBOX: NO
+        SWIFT_STRICT_CONCURRENCY: complete
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        COMBINE_HIDPI_IMAGES: YES
+
+  # The parser is pure Foundation, so the model sources compile straight into the
+  # test bundle. That keeps `xcodebuild test` from having to launch the menu bar app.
+  QuickRemindersTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - QuickRemindersTests
+      - QuickReminders/Model
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nicolasblunck.QuickRemindersTests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+
+  # Renders views to PNG offscreen (activation policy .prohibited), so UI can be
+  # checked without a window ever appearing over the user's work.
+  SnapshotTool:
+    type: tool
+    platform: macOS
+    sources:
+      - QuickReminders/Model
+      - QuickReminders/Services/ReminderWriter.swift
+      - QuickReminders/Services/RemindersService.swift
+      - QuickReminders/Services/Preferences.swift
+      - QuickReminders/Views/ListPickerView.swift
+      - QuickReminders/Views/ParsedChipsView.swift
+      - QuickReminders/Views/CalendarGridView.swift
+      - QuickReminders/Views/DatePopoverView.swift
+      - QuickReminders/Views/TimePopoverView.swift
+      - QuickReminders/Views/PriorityMarksView.swift
+      - QuickReminders/Views/QuickEntryView.swift
+      - Snapshot
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nicolasblunck.QuickRemindersSnapshot
+        SWIFT_STRICT_CONCURRENCY: minimal
+
+schemes:
+  SnapshotTool:
+    build:
+      targets:
+        SnapshotTool: all
+    run:
+      config: Debug
+
+  QuickReminders:
+    build:
+      targets:
+        QuickReminders: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - QuickRemindersTests

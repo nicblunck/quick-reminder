@@ -1,0 +1,163 @@
+import AppKit
+import SwiftUI
+
+/// What the panel hands its content: the text to start from, a way to close, and
+/// a way to say "hold this open".
+@MainActor
+struct PanelContext {
+    var prefill: String
+    var dismiss: () -> Void
+    var setPinned: (Bool) -> Void
+}
+
+/// Owns the lifetime and placement of the quick entry panel.
+@MainActor
+final class PanelController: NSObject, NSWindowDelegate {
+
+    private var panel: QuickEntryPanel?
+    private let makeContent: (PanelContext) -> AnyView
+    private var pendingPrefill = ""
+    private var isDismissing = false
+    /// Set from the pin button. Suppresses only the automatic dismissal — Esc,
+    /// the close button, the hotkey and a successful save all still close.
+    private var isPinned = false
+    private static let riseDistance: CGFloat = 10
+
+    /// - Parameter content: builds the SwiftUI body from the panel's context.
+    init(content: @escaping (PanelContext) -> AnyView) {
+        self.makeContent = content
+        super.init()
+        observeDeactivation()
+    }
+
+    var isVisible: Bool { panel?.isVisible ?? false }
+
+    func toggle() {
+        if isVisible, !isDismissing { reset() } else { show() }
+    }
+
+    func show(prefill: String = "") {
+        // Finish any in-flight dismissal before reusing the controller, or the
+        // fade-out's completion would tear down the panel we are about to show.
+        if isDismissing { tearDown() }
+        // A different prefill needs a fresh view, not the recycled one.
+        if prefill != pendingPrefill { tearDown() }
+        pendingPrefill = prefill
+        let panel = panel ?? makePanel()
+        self.panel = panel
+
+        sizeToFit(panel)
+        position(panel)
+        // A non-activating panel still needs the app frontmost for the text
+        // field to reliably take first responder from a background process.
+        NSApp.activate(ignoringOtherApps: true)
+
+        // Fade and rise into place. AppKit cannot scale a window, so the lift
+        // does the work a scale would do in SwiftUI — and unlike a scale it
+        // needs no transparent margin to avoid clipping.
+        let destination = panel.frame.origin
+        panel.alphaValue = 0
+        panel.setFrameOrigin(NSPoint(x: destination.x, y: destination.y - Self.riseDistance))
+        panel.makeKeyAndOrderFront(nil)
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().alphaValue = 1
+            panel.animator().setFrameOrigin(destination)
+        }
+    }
+
+    /// Fades out, then tears down so the next capture starts from a clean draft.
+    func reset() {
+        guard let panel, !isDismissing else { return }
+        isDismissing = true
+
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.11
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated { self?.tearDown() }
+        })
+    }
+
+    private func tearDown() {
+        panel?.orderOut(nil)
+        panel?.delegate = nil
+        panel = nil
+        isDismissing = false
+        // Each capture starts unpinned.
+        isPinned = false
+    }
+
+    private func makePanel() -> QuickEntryPanel {
+        let panel = QuickEntryPanel(contentRect: NSRect(x: 0, y: 0, width: 700, height: 260))
+        // NSHostingController's `.preferredContentSize` collapses the window to
+        // zero here, so drive the size from the hosting view's fitting size instead.
+        let hosting = NSHostingView(
+            rootView: makeContent(
+                PanelContext(
+                    prefill: pendingPrefill,
+                    dismiss: { [weak self] in self?.reset() },
+                    setPinned: { [weak self] pinned in self?.isPinned = pinned }
+                )
+            )
+        )
+        hosting.sizingOptions = [.intrinsicContentSize]
+        panel.contentView = hosting
+        panel.delegate = self
+        panel.onCancel = { [weak self] in self?.reset() }
+        return panel
+    }
+
+    /// SwiftUI decides the card's height (notes and URL fields expand it), so ask
+    /// the hosting view what it wants before placing the window.
+    private func sizeToFit(_ panel: NSPanel) {
+        guard let content = panel.contentView else { return }
+        content.layoutSubtreeIfNeeded()
+        let size = content.fittingSize
+        guard size.width > 0, size.height > 0 else { return }
+        panel.setContentSize(size)
+        // Without this the shadow keeps the previous size's outline.
+        panel.invalidateShadow()
+    }
+
+    /// Centred horizontally on whichever screen holds the pointer, sitting a
+    /// little above true centre the way Spotlight does.
+    private func position(_ panel: NSPanel) {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
+            ?? NSScreen.main
+        guard let visible = screen?.visibleFrame else { return }
+
+        let size = panel.frame.size
+        let origin = NSPoint(
+            x: visible.midX - size.width / 2,
+            y: visible.minY + visible.height * 0.62 - size.height / 2
+        )
+        panel.setFrameOrigin(origin)
+    }
+
+    /// Dismiss when the user moves to another app — deliberately NOT on the panel
+    /// merely losing key status. Menus, popovers (the graphical date picker) and
+    /// notification banners all steal key focus without deactivating the app, and
+    /// tearing the panel down for any of those loses whatever was typed.
+    private func observeDeactivation() {
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.autoDismiss() }
+        }
+    }
+
+    /// Dismissal the user did not ask for directly. A pinned panel ignores it,
+    /// which is the whole point of the pin: switch away, look something up,
+    /// come back to what you were typing.
+    private func autoDismiss() {
+        guard !isPinned else { return }
+        reset()
+    }
+}
