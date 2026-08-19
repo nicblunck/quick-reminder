@@ -139,6 +139,13 @@ every build, so TCC treats each build as a new app. Install a stable copy into
 **The window is Liquid Glass, so the deployment target is macOS 26.** The
 `glassEffect` API does not exist before Tahoe.
 
+**The panel's entrance animates position only, never opacity.** Every frame of a
+window `alphaValue` change makes the Liquid Glass material re-sample its backdrop,
+which reads as flicker. Travel and easing carry the motion instead. For the same
+reason there is no scale: AppKit cannot scale a window, and scaling in SwiftUI
+needs a transparent margin around the card — which exposes the window's own frame
+as an outline and leaves the shadow's alpha mask ambiguous.
+
 **The panel dismisses on app deactivation, not on losing key focus.** Menus,
 popovers (the graphical date picker) and notification banners all steal key status
 without deactivating the app; tearing the panel down for any of those would discard

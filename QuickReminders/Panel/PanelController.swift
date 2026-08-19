@@ -21,7 +21,11 @@ final class PanelController: NSObject, NSWindowDelegate {
     /// Set from the pin button. Suppresses only the automatic dismissal — Esc,
     /// the close button, the hotkey and a successful save all still close.
     private var isPinned = false
-    private static let riseDistance: CGFloat = 10
+    /// Enough travel to read as motion; a smaller lift just looks like a stutter.
+    private static let riseDistance: CGFloat = 18
+    private static let appearDuration: TimeInterval = 0.24
+    private static let dismissDuration: TimeInterval = 0.09
+    private static let dismissDrop: CGFloat = 8
 
     /// - Parameter content: builds the SwiftUI body from the panel's context.
     init(content: @escaping (PanelContext) -> AnyView) {
@@ -52,18 +56,25 @@ final class PanelController: NSObject, NSWindowDelegate {
         // field to reliably take first responder from a background process.
         NSApp.activate(ignoringOtherApps: true)
 
-        // Fade and rise into place. AppKit cannot scale a window, so the lift
-        // does the work a scale would do in SwiftUI — and unlike a scale it
-        // needs no transparent margin to avoid clipping.
+        // Fade and rise into place. Deliberately no scale: AppKit cannot scale a
+        // window, and doing it in SwiftUI needs a transparent margin around the
+        // card — which in turn exposes the window's own frame as an outline and
+        // confuses the shadow's alpha mask. Travel and easing carry the motion
+        // instead, and both are things AppKit animates cleanly.
+        // Position only — the opacity is deliberately NOT animated. Every frame
+        // of an alphaValue change makes the Liquid Glass material re-sample its
+        // backdrop, which reads as flicker. It was always there; a longer
+        // animation only made it long enough to notice.
         let destination = panel.frame.origin
-        panel.alphaValue = 0
+        panel.alphaValue = 1
         panel.setFrameOrigin(NSPoint(x: destination.x, y: destination.y - Self.riseDistance))
         panel.makeKeyAndOrderFront(nil)
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().alphaValue = 1
+            context.duration = Self.appearDuration
+            // Leaves fast and decelerates hard into place — the tail of a spring
+            // without the overshoot that would need room to grow into.
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
             panel.animator().setFrameOrigin(destination)
         }
     }
@@ -73,10 +84,16 @@ final class PanelController: NSObject, NSWindowDelegate {
         guard let panel, !isDismissing else { return }
         isDismissing = true
 
+        // Retreats the way it arrived, and faster: dismissal should feel
+        // immediate rather than played back.
+        let origin = panel.frame.origin
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.11
-            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            context.duration = Self.dismissDuration
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0, 1, 1)
             panel.animator().alphaValue = 0
+            panel.animator().setFrameOrigin(
+                NSPoint(x: origin.x, y: origin.y - Self.dismissDrop)
+            )
         }, completionHandler: { [weak self] in
             MainActor.assumeIsolated { self?.tearDown() }
         })
