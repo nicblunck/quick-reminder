@@ -148,7 +148,11 @@ struct QuickEntryView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            ListPickerView(lists: service.lists, selection: $selectedListID)
+            ListPickerView(
+                lists: service.lists,
+                isLoading: !service.hasLoadedLists,
+                selection: $selectedListID
+            )
             Spacer(minLength: 0)
             pinButton
             Button(action: dismiss) {

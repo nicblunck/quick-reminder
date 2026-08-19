@@ -7,6 +7,7 @@ import SwiftUI
 /// in Reminders.app.
 struct ListPickerView: View {
     let lists: [ReminderList]
+    var isLoading = false
     @Binding var selection: String?
 
     private var current: ReminderList? {
@@ -40,7 +41,7 @@ struct ListPickerView: View {
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundStyle(.white)
                     }
-                Text(current?.title ?? "No lists")
+                Text(current?.title ?? (isLoading ? "Loading…" : "No lists"))
                     .font(.headline)
                     .foregroundStyle(tint)
                 Image(systemName: "chevron.down")
@@ -56,5 +57,7 @@ struct ListPickerView: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .disabled(lists.isEmpty)
+        .opacity(isLoading ? 0.6 : 1)
+        .animation(.easeOut(duration: 0.15), value: isLoading)
     }
 }

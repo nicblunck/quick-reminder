@@ -19,6 +19,10 @@ final class RemindersService: ReminderWriter {
 
     private(set) var access: Access = .undetermined
     private(set) var lists: [ReminderList] = []
+    /// Distinguishes "the fetch has not come back yet" from "there are none".
+    /// The first `calendars(for:)` call costs a second or two, and an empty
+    /// picker in the meantime reads as an error rather than as loading.
+    private(set) var hasLoadedLists = false
     private(set) var defaultListID: String?
 
     /// Hour/minute used when the user gave a day but no clock time.
@@ -38,6 +42,7 @@ final class RemindersService: ReminderWriter {
         let service = RemindersService()
         service.isPreview = true
         service.access = .granted
+        service.hasLoadedLists = true
         service.lists = lists
         service.defaultListID = lists.first?.id
         return service
@@ -80,6 +85,7 @@ final class RemindersService: ReminderWriter {
             .map { ReminderList(id: $0.calendarIdentifier, title: $0.title, color: ListColor(cgColor: $0.cgColor)) }
             .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         defaultListID = store.defaultCalendarForNewReminders()?.calendarIdentifier ?? lists.first?.id
+        hasLoadedLists = true
     }
 
     // MARK: - Saving
