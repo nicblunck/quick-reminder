@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsView: View {
     let service: RemindersService
     let preferences: Preferences
+    let updater: UpdaterService
 
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
 
@@ -58,6 +59,23 @@ struct SettingsView: View {
                     ),
                     displayedComponents: .hourAndMinute
                 )
+            }
+
+            Section("Updates") {
+                Toggle("Check automatically", isOn: Binding(
+                    get: { updater.automaticallyChecksForUpdates },
+                    set: { updater.automaticallyChecksForUpdates = $0 }
+                ))
+                LabeledContent("Last checked") {
+                    HStack(spacing: 10) {
+                        Text(updater.lastUpdateCheckDate.map {
+                            $0.formatted(date: .abbreviated, time: .shortened)
+                        } ?? "Never")
+                        .foregroundStyle(.secondary)
+                        Button("Check Now") { updater.checkForUpdates() }
+                            .disabled(!updater.canCheckForUpdates)
+                    }
+                }
             }
 
             Section("General") {

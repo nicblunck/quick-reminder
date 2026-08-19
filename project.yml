@@ -10,6 +10,9 @@ packages:
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     from: 2.2.1
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.6.0
 
 settings:
   base:
@@ -39,6 +42,7 @@ targets:
         type: file
     dependencies:
       - package: KeyboardShortcuts
+      - package: Sparkle
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nicolasblunck.QuickReminders

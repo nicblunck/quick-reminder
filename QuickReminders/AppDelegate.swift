@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     let service = RemindersService()
     let preferences = Preferences()
+    let updater = UpdaterService()
     /// Lazy, not built in `applicationDidFinishLaunching`: a `quickreminders://`
     /// URL is delivered during AppKit's window-restoration pass, which runs
     /// *before* that method, and touching a nil controller there traps.
@@ -73,6 +74,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showContextMenu() {
         let menu = NSMenu()
 
+        let checkForUpdates = NSMenuItem(
+            title: "Check for Updates…", action: #selector(checkForUpdatesAction), keyEquivalent: ""
+        )
+        checkForUpdates.target = self
+        checkForUpdates.isEnabled = updater.canCheckForUpdates
+        menu.addItem(checkForUpdates)
+
         let settings = NSMenuItem(
             title: "Settings…", action: #selector(openSettingsAction), keyEquivalent: ","
         )
@@ -94,6 +102,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = nil
     }
 
+    @objc private func checkForUpdatesAction() {
+        updater.checkForUpdates()
+    }
+
     @objc private func openSettingsAction() {
         openSettings()
     }
@@ -111,7 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let hosting = NSHostingController(
-            rootView: SettingsView(service: service, preferences: preferences)
+            rootView: SettingsView(service: service, preferences: preferences, updater: updater)
         )
         let window = NSWindow(contentViewController: hosting)
         window.title = "Quick Reminders Settings"

@@ -110,6 +110,46 @@ quickreminders://add?text=call+dentist+tomorrow+5pm   # saves immediately, no UI
 A failed silent add falls back to opening the panel with the text intact, so nothing
 typed is ever lost.
 
+## Releasing an update
+
+Auto-updates use [Sparkle](https://sparkle-project.org). The app checks
+`appcast.xml` in this repo; builds are attached to GitHub Releases.
+
+```bash
+Scripts/release.sh 1.1
+```
+
+That builds Release, signs with Developer ID, notarizes, staples, and rewrites
+`appcast.xml`. It deliberately stops before publishing — it prints the two
+commands to create the GitHub Release and push the appcast, so nothing goes out
+by accident. **Create the release before pushing `appcast.xml`**, or Sparkle
+will advertise a download that 404s.
+
+One-time setup, which you must do yourself because it stores a password:
+
+```bash
+xcrun notarytool store-credentials "QuickReminders"
+```
+
+Passing no arguments makes notarytool prompt for the Apple ID, team ID and
+app-specific password, with the password hidden. The `--password` flag works too
+but writes the secret into shell history. The team is `U4K77TMBRU`, and the
+password is an app-specific one generated at account.apple.com — not the Apple
+ID password itself.
+
+Note the Developer ID certificate belongs to team `U4K77TMBRU` (TIMO BLUNCK), so
+notarization has to be submitted by an Apple ID that belongs to that team.
+
+The Sparkle EdDSA signing key already lives in the login keychain. **Back it
+up.** Losing it means existing installs will reject every future update, since
+they verify against the public key baked into the app they are already running,
+and the only fix is for each user to reinstall by hand.
+
+Signing matters more than usual here: Sparkle installs an update by replacing
+the app bundle, so an ad-hoc signed build would trip Gatekeeper and would also
+lose its Reminders permission on every update, TCC treating each build as a new
+app.
+
 ## Checking the UI without a window
 
 `SnapshotTool` renders views to PNGs entirely offscreen. It sets the activation
