@@ -2,12 +2,15 @@ import AppKit
 
 /// The floating capture window.
 ///
-/// Two non-obvious requirements:
-///  - `.nonactivatingPanel` keeps the app underneath from being visually
-///    disturbed, but such a panel refuses key status by default, which would
-///    leave the text field unable to accept typing. Hence `canBecomeKey`.
-///  - The window is transparent and exactly the size of the card; the rounded
-///    shape and its shadow come from the content's alpha, not a drawn rectangle.
+/// The window itself provides the rounded shape and the shadow — that is what a
+/// titled window with a hidden titlebar already does — and an `NSVisualEffectView`
+/// provides the Liquid Glass backdrop. Nothing rounds or shadows anything in
+/// SwiftUI; drawing a second rounded card inside a window that is already rounded
+/// leaves a seam wherever the two curves disagree.
+///
+/// `.nonactivatingPanel` keeps the app underneath from being disturbed, but such a
+/// panel refuses key status by default, which would leave the text field unable to
+/// accept typing. Hence `canBecomeKey`.
 final class QuickEntryPanel: NSPanel {
 
     init(contentRect: NSRect) {
@@ -28,11 +31,6 @@ final class QuickEntryPanel: NSPanel {
         standardWindowButton(.miniaturizeButton)?.isHidden = true
         standardWindowButton(.zoomButton)?.isHidden = true
 
-        backgroundColor = .clear
-        isOpaque = false
-        // AppKit's own shadow, shaped from the content's alpha, rather than a
-        // hand-drawn one inside a transparent margin.
-        hasShadow = true
         isMovableByWindowBackground = true
         hidesOnDeactivate = false
         animationBehavior = .utilityWindow
@@ -41,8 +39,8 @@ final class QuickEntryPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    /// Without this, ⌘W / ⌘. and plain Esc would not reach the SwiftUI content
-    /// in a panel that has no menu-bar-owning main window.
+    /// Without this, Esc would not reach the SwiftUI content in a panel that has
+    /// no menu-bar-owning main window.
     override func cancelOperation(_ sender: Any?) {
         onCancel?()
     }

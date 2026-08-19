@@ -39,13 +39,6 @@ final class Preferences {
             }
         }
 
-        /// Rendered on the Add button.
-        var hint: String {
-            switch self {
-            case .commandReturn: "⌘↩"
-            case .returnKey: "↩"
-            }
-        }
     }
 
     private let defaults: UserDefaults

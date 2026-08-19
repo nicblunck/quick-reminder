@@ -77,6 +77,7 @@ final class PanelController: NSObject, NSWindowDelegate {
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
             panel.animator().setFrameOrigin(destination)
         }
+
     }
 
     /// Fades out, then tears down so the next capture starts from a clean draft.
@@ -109,9 +110,15 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     private func makePanel() -> QuickEntryPanel {
-        let panel = QuickEntryPanel(contentRect: NSRect(x: 0, y: 0, width: 700, height: 260))
-        // NSHostingController's `.preferredContentSize` collapses the window to
-        // zero here, so drive the size from the hosting view's fitting size instead.
+        let panel = QuickEntryPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 200))
+
+        // The Liquid Glass backdrop for the whole window. SwiftUI draws only
+        // content on top of it — no material, no rounding, no shadow there.
+        let backdrop = NSVisualEffectView()
+        backdrop.material = .hudWindow
+        backdrop.blendingMode = .behindWindow
+        backdrop.state = .active
+
         let hosting = NSHostingView(
             rootView: makeContent(
                 PanelContext(
@@ -122,7 +129,20 @@ final class PanelController: NSObject, NSWindowDelegate {
             )
         )
         hosting.sizingOptions = [.intrinsicContentSize]
-        panel.contentView = hosting
+        // The window is titled so it gets a system shape and shadow, and its
+        // titlebar reports a 32pt top safe-area inset. SwiftUI would honour that
+        // and push everything down, leaving an empty strip above the content.
+        hosting.safeAreaRegions = []
+        hosting.translatesAutoresizingMaskIntoConstraints = false
+        backdrop.addSubview(hosting)
+        NSLayoutConstraint.activate([
+            hosting.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor),
+            hosting.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor),
+            hosting.topAnchor.constraint(equalTo: backdrop.topAnchor),
+            hosting.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor),
+        ])
+
+        panel.contentView = backdrop
         panel.delegate = self
         panel.onCancel = { [weak self] in self?.reset() }
         return panel

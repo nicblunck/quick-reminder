@@ -30,7 +30,6 @@ struct QuickEntryView: View {
 
     private enum Field: Hashable { case title, notes }
 
-    private static let cardShape = RoundedRectangle(cornerRadius: 20, style: .continuous)
 
     /// How far a stepper travels out from under the clock — the clock's own width,
     /// so each one starts exactly covered by it.
@@ -128,11 +127,7 @@ struct QuickEntryView: View {
             chips
             footer
         }
-        .frame(width: 560)
-        .clipShape(Self.cardShape)
-        // Liquid Glass draws its own edge highlight and shadowing, so the hand
-        // drawn hairline border that the flat material needed is gone.
-        .glassEffect(.regular, in: Self.cardShape)
+        .frame(width: 500)
         .defaultFocus($focus, .title)
         .task { await prepare() }
         .task(id: rawInput) {
@@ -164,9 +159,9 @@ struct QuickEntryView: View {
             .buttonStyle(.plain)
             .help("Close (Esc)")
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 14)
-        .padding(.bottom, 10)
+        .padding(.horizontal, 14)
+        .padding(.top, 12)
+        .padding(.bottom, 6)
         .contentShape(Rectangle())
         // The header doubles as the title bar. A plain `.gesture` leaves the
         // list menu and close button their own clicks.
@@ -233,7 +228,7 @@ struct QuickEntryView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 14)
     }
 
     // MARK: - Chips
@@ -273,9 +268,9 @@ struct QuickEntryView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 10)
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
         .animation(Self.settle, value: effectiveDay)
         .animation(Self.settle, value: effectiveTime)
         .animation(Self.settle, value: effectivePriority)
@@ -294,8 +289,10 @@ struct QuickEntryView: View {
                 Spacer(minLength: 0)
                 addButton
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            // Equal on both axes, and matching the content margin, so the Add
+            // button and the icons sit the same distance from the window's edges
+            // and nest inside the corner rounding.
+            .padding(14)
             .animation(Self.settle, value: effectiveTime == nil)
             .animation(Self.settle, value: effectiveDay == nil)
             .animation(Self.settle, value: effectivePriority)
@@ -438,16 +435,7 @@ struct QuickEntryView: View {
     }
 
     private var addButton: some View {
-        Button(action: save) {
-            HStack(spacing: 7) {
-                Text("Add Reminder")
-                // Supporting info, not a second label: a size down and well back
-                // in contrast, so it reads as a hint attached to the action.
-                Text(preferences.submitShortcut.hint)
-                    .font(.caption)
-                    .opacity(0.55)
-            }
-        }
+        Button("Add Reminder", action: save)
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
         .disabled(!draft.isSubmittable)
