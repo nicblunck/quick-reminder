@@ -32,6 +32,11 @@ targets:
         excludes:
           - "Resources/Info.plist"
           - "Resources/QuickReminders.entitlements"
+          - "Resources/AppIcon.icon"
+      # An Icon Composer bundle. Declared explicitly as a file so it is compiled
+      # as one icon, rather than recursed into and copied as loose json and svg.
+      - path: QuickReminders/Resources/AppIcon.icon
+        type: file
     dependencies:
       - package: KeyboardShortcuts
     settings:
