@@ -19,6 +19,7 @@ if [[ -z "$VERSION" ]]; then
 fi
 
 SIGN_IDENTITY="Developer ID Application"
+TEAM_ID="U4K77TMBRU"
 NOTARY_PROFILE="QuickReminders"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$REPO_ROOT/.release"
@@ -40,6 +41,7 @@ xcodebuild -project QuickReminders.xcodeproj -scheme QuickReminders \
   -configuration Release -destination 'platform=macOS' \
   -derivedDataPath "$BUILD_DIR/dd" \
   MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$VERSION" \
+  DEVELOPMENT_TEAM="$TEAM_ID" \
   CODE_SIGN_IDENTITY="$SIGN_IDENTITY" CODE_SIGN_STYLE=Manual \
   build
 
@@ -48,7 +50,8 @@ APP="$BUILD_DIR/dd/Build/Products/Release/$APP_NAME.app"
 # Nested code must be signed before the app that contains it, innermost first,
 # or the outer signature seals a bundle whose contents then change.
 echo "==> Signing"
-find "$APP/Contents/Frameworks" -depth -name "*.framework" -o -depth -name "*.app" -o -depth -name "*.xpc" 2>/dev/null \
+find "$APP/Contents/Frameworks" -depth \
+  \( -name "*.framework" -o -name "*.app" -o -name "*.xpc" \) 2>/dev/null \
   | while read -r nested; do
       codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$nested"
     done

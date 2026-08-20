@@ -6,3 +6,7 @@ xcuserdata/
 
 # Generated from project.yml by xcodegen — run `xcodegen generate` to recreate.
 QuickReminders.xcodeproj/
+
+# Release scratch
+.release/
+.release-test/
