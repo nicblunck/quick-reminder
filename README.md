@@ -110,10 +110,39 @@ quickreminders://add?text=call+dentist+tomorrow+5pm   # saves immediately, no UI
 A failed silent add falls back to opening the panel with the text intact, so nothing
 typed is ever lost.
 
+## Installing locally
+
+Day to day, build and install straight into `/Applications`:
+
+```bash
+Scripts/install.sh
+```
+
+Run it again to update — it quits the running copy, replaces the bundle, and
+leaves nothing behind. It signs with Developer ID but does not notarize, which
+is fine for an app built on the machine that runs it: Gatekeeper only
+quarantines things that arrive from elsewhere.
+
+The stable signature is the real reason to install rather than run from
+DerivedData. TCC keys the Reminders permission to an app's code signature, so an
+ad-hoc build is a brand new app every time and has to be re-authorised on every
+rebuild; a Developer ID signed build is granted once.
+
+**Only ever run one copy.** Two bundles with the same identifier — say an
+installed one and a DerivedData one — both put an item in the menu bar and both
+register the global hotkey, and which one answers is arbitrary. `install.sh`
+deletes its own build output for that reason. Launch by path
+(`open /Applications/QuickReminders.app`), not by bundle id, since
+LaunchServices resolves an id to whichever copy it happens to prefer.
+
 ## Releasing an update
 
 Auto-updates use [Sparkle](https://sparkle-project.org). The app checks
 `appcast.xml` in this repo; builds are attached to GitHub Releases.
+
+**Not yet live.** No release has been published, so `appcast.xml` does not exist
+and "Check for Updates…" will report an error. Until then, update with
+`Scripts/install.sh` above.
 
 ```bash
 Scripts/release.sh 1.1
