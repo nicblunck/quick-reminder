@@ -247,6 +247,23 @@ struct AbsoluteDateTests {
         #expect(c.day == 20)
         #expect(result.cleanedTitle == "book flights")
     }
+
+    /// NSDataDetector resolves in the *system* time zone and picks noon when the
+    /// text names no time. Read literally that instant lands on the day either
+    /// side of the one the user named whenever the two zones differ — which is
+    /// why the parser re-expresses it in the calendar it was handed.
+    @Test("An absolute date lands on the named day in the parser's own calendar")
+    func absoluteDateHonoursTheInjectedCalendar() throws {
+        let result = parse("book flights August 20")
+        let due = try #require(result.dueDate)
+        let c = try components(due)
+
+        #expect(c.day == 20)
+        #expect(result.hasTime == false)
+        // No time was given, so it starts the day like every other date branch.
+        #expect(c.hour == 0)
+        #expect(c.minute == 0)
+    }
 }
 
 @Suite("Title cleanup")

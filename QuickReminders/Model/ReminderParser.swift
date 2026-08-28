@@ -202,8 +202,33 @@ enum ReminderParser {
             // so decide from the matched text whether a clock time was given.
             let matched = (searchable as NSString).substring(with: match.range)
             let carriesTime = extractTime(from: matched, excluding: nil) != nil
+
+            // NSDataDetector answers with an instant resolved in the *system's*
+            // time zone, ignoring the calendar this parser was handed — and for
+            // a dateless match it picks noon, not midnight. Taken literally that
+            // instant can land on the day either side of the one the user named
+            // once the two zones differ. Re-read the day (and any clock time) it
+            // named in its own zone, then rebuild it in ours.
+            var namingZone = Calendar(identifier: .gregorian)
+            namingZone.timeZone = match.timeZone ?? .current
+            let named = namingZone.dateComponents(
+                [.year, .month, .day, .hour, .minute], from: date
+            )
+
+            var rebuilt = DateComponents()
+            rebuilt.year = named.year
+            rebuilt.month = named.month
+            rebuilt.day = named.day
+            if carriesTime {
+                rebuilt.hour = named.hour
+                rebuilt.minute = named.minute
+            }
+            // Undated matches start the day, matching every other branch here —
+            // the writer substitutes the user's default time when hasTime is false.
+            guard let resolved = calendar.date(from: rebuilt) else { return nil }
+
             return DateHit(
-                date: date,
+                date: resolved,
                 hasTime: carriesTime,
                 sourceText: original.substring(with: match.range),
                 ranges: [match.range]
