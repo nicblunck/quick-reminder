@@ -112,12 +112,14 @@ final class PanelController: NSObject, NSWindowDelegate {
     private func makePanel() -> QuickEntryPanel {
         let panel = QuickEntryPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 200))
 
-        // The Liquid Glass backdrop for the whole window. SwiftUI draws only
-        // content on top of it — no material, no rounding, no shadow there.
+        // The Liquid Glass backdrop for the whole window, and the one thing that
+        // gives the panel its shape. SwiftUI draws only content on top of it —
+        // no material, no rounding, no shadow there.
         let backdrop = NSVisualEffectView()
         backdrop.material = .hudWindow
         backdrop.blendingMode = .behindWindow
         backdrop.state = .active
+        backdrop.maskImage = QuickEntryPanel.backdropMask()
 
         let hosting = NSHostingView(
             rootView: makeContent(
@@ -129,9 +131,8 @@ final class PanelController: NSObject, NSWindowDelegate {
             )
         )
         hosting.sizingOptions = [.intrinsicContentSize]
-        // The window is titled so it gets a system shape and shadow, and its
-        // titlebar reports a 32pt top safe-area inset. SwiftUI would honour that
-        // and push everything down, leaving an empty strip above the content.
+        // Nothing here should reserve room for window chrome the panel doesn't
+        // have; without this an inset would leave an empty strip above the content.
         hosting.safeAreaRegions = []
         hosting.translatesAutoresizingMaskIntoConstraints = false
         backdrop.addSubview(hosting)
