@@ -14,7 +14,7 @@ protocol ReminderWriter {
 
 /// A list's colour, flattened to sRGB components so the type stays `Sendable`
 /// and `Hashable` — `CGColor` is neither.
-struct ListColor: Hashable, Sendable {
+struct ListColor: Hashable, Sendable, Codable {
     var red: Double
     var green: Double
     var blue: Double

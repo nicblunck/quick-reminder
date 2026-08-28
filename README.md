@@ -98,6 +98,94 @@ A day with no time is saved at the default time set in Settings (9:00 by default
 | Esc | Dismiss, discarding the draft |
 | ⌘1 / ⌘2 / ⌘3 | High / medium / low priority |
 
+## Widgets and filters
+
+Quick Reminders also *reads*. **Settings ▸ Filters** builds named, coloured queries
+over the Reminders database, and each one can be dropped on the desktop or in
+Notification Center as a Small, Medium or Large widget.
+
+A filter is a tree of conditions rather than a fixed set of toggles, so `all`,
+`any` and `none` groups nest freely:
+
+| Filter | Conditions | Matches |
+| --- | --- | --- |
+| Work Today | `all`: due on or before **0** days, list is any of *Work* | today plus anything overdue |
+| Work This Week | `all`: due on or after **1**, due on or before **7**, list is any of *Work* | the coming week, today excluded |
+| Later | `any`: due on or after **8**, due date is not set | everything further out, plus undated |
+
+That third one is why the tree exists — "beyond the week **or** with no deadline at
+all" has no expression as a flat list of ANDed rules.
+
+Conditions read due date, start date, list, priority, title, notes, completion and
+repeat. Dates are relative (`0` = today, `1` = tomorrow, `-1` = yesterday), so the
+filters keep meaning the same thing tomorrow. Two deliberate defaults:
+
+* An **empty list selection constrains nothing**. The seeded filters ship that way
+  until you pick your work lists, so a fresh install shows everything rather than
+  nothing.
+* **Completed reminders are hidden** unless a rule mentions completion explicitly.
+
+Each filter carries a name, an SF Symbol and a tint, and the editor previews live
+counts against your real reminders as you type.
+
+On the widget itself, tapping a circle completes the reminder in place, and the **+**
+in the corner opens the quick entry panel. The add button can be turned off per
+filter, or per widget in the widget's own configuration.
+
+### How the two processes share
+
+The app is not sandboxed; a widget extension always is. Everything they share
+travels through the App Group
+`U4K77TMBRU.group.com.nicolasblunck.QuickReminders` — the team prefix is
+required, and an unprefixed `group.` name silently yields a nil container.
+
+**The widget never touches EventKit.** It cannot: a sandboxed extension holds no
+Reminders grant of its own, and a widget has no way to show a TCC prompt, so its
+XPC connection to the Reminders daemon is refused outright:
+
+```
+[com.apple.eventkit:EventKit] Error loading access: Error Domain=NSMachErrorDomain Code=4099
+[com.apple.reminderkit:xpc] XPC connection was invalidated
+```
+
+That is the same Mach 4099 the ad-hoc signing note in `project.yml` describes,
+reached by a different route — here the signature is fine and the grant is what
+is missing. It is not fixable from inside the extension.
+
+So the app does the work. `WidgetSnapshotPublisher` fetches once, evaluates every
+filter against that one fetch, and writes the results to `snapshot.json` in the
+group container; the widget's timeline provider only reads that file. The app
+republishes on launch, whenever a filter changes, and on `EKEventStoreChanged`,
+each debounced. A widget shows "Waiting for Quick Reminders" if the app has never
+published, and notes the age of its rows once a snapshot goes stale.
+
+Completing a reminder from a widget goes the same way round. The extension cannot
+write to EventKit either, so `CompleteTaskIntent` appends to
+`inbox/pending-completions.json` and the app — watching that directory with a
+`DispatchSource` — applies it and republishes. The round trip is invisible in
+practice, and nothing steals focus.
+
+Two traps worth keeping in mind, both of which cost real time here:
+
+* **Watch the inbox, not the container.** The publisher's own `snapshot.json`
+  write lands in the container root. Watching the root means the app republishes
+  in response to its own output — a loop that ran at ~860 reloads and ~1700
+  EventKit fetches per two minutes before it was caught.
+* **Storage is plain files, not `UserDefaults(suiteName:)`.** A shared suite is
+  the obvious choice and it does not work: cfprefsd refuses the group domain with
+  *"Using kCFPreferencesAnyUser with a container is only allowed for System
+  Containers"* and detaches, making reads unreliable in the extension.
+
+`ReminderQuery`'s read path is `nonisolated` throughout. EventKit calls a fetch's
+completion on its own queue, and inside a `@MainActor` type that closure inherits
+main-actor isolation — which trips libdispatch's queue assertion and kills the
+process with *"Block was expected to execute on queue [com.apple.main-thread]"*.
+
+Signing matters more than usual here. Both `Scripts/install.sh` and
+`Scripts/release.sh` re-sign after building, and a re-sign without
+`--entitlements` silently strips the sandbox and App Group from the widget —
+which, from the desktop, looks exactly like a widget that never loads.
+
 ## URL scheme
 
 For Raycast, Alfred, Shortcuts or scripts:
@@ -192,6 +280,14 @@ xcodebuild build -project QuickReminders.xcodeproj -scheme SnapshotTool -destina
 It uses `NSHostingView` rather than SwiftUI's `ImageRenderer`, because AppKit-backed
 controls like `Menu` only draw their real chrome in a live view tree — which is
 exactly what you need to see when debugging a control's appearance.
+
+It also renders the widgets, at all three macOS widget sizes, and the filter
+editor. Two caveats specific to those: `widgetFamily` is read-only in the
+environment, so `FilterWidgetView` takes a `familyOverride` the tool sets instead;
+and `containerBackground(for: .widget)` is inert outside a real widget host, so the
+tool paints the card's fill and corner radius itself. What the tool cannot tell you
+is whether the extension can reach EventKit at runtime — that only shows up once a
+widget is actually on the desktop.
 
 ## Notes on the build
 

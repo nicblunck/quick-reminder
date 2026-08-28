@@ -1,3 +1,4 @@
+import WidgetKit
 import AppKit
 import SwiftUI
 
@@ -98,4 +99,163 @@ MainActor.assumeIsolated {
         width: 320
     )
 
+}
+
+// MARK: - Widgets
+
+/// The widget views, rendered at the three macOS widget point sizes.
+///
+/// `containerBackground(for: .widget)` is inert outside a real widget host, so
+/// the card's fill and corner radius are drawn here instead — otherwise every
+/// snapshot would come back on a transparent ground.
+@MainActor
+func widgetSnapshot(_ entry: FilterEntry, family: WidgetFamily, named name: String) {
+    let size: CGSize = switch family {
+    case .systemSmall: CGSize(width: 170, height: 170)
+    case .systemLarge: CGSize(width: 364, height: 382)
+    default: CGSize(width: 364, height: 170)
+    }
+
+    // No padding added here: the widget owns its own margins, and adding any
+    // would mean these snapshots flattered a layout the real widget does not have.
+    let card = FilterWidgetView(entry: entry, familyOverride: family)
+        .frame(width: size.width, height: size.height)
+        .background(Color(nsColor: .textBackgroundColor))
+        .clipShape(.rect(cornerRadius: 22))
+        .padding(10)
+        .background(Color(nsColor: .windowBackgroundColor))
+
+    snapshot(card, named: name, width: size.width + 20)
+}
+
+MainActor.assumeIsolated {
+    let today = TaskFilter(
+        name: "Work Today", symbolName: "sun.max.fill", tint: .yellow,
+        root: .all([.rule(.dueDate, .onOrBefore, .days(0))])
+    )
+    let later = TaskFilter(
+        name: "Later", symbolName: "tray.full", tint: .purple,
+        root: .any([.rule(.dueDate, .onOrAfter, .days(8)), .rule(.dueDate, .doesNotExist)])
+    )
+
+    func at(_ hour: Int, day: Int = 0) -> Date {
+        let base = Calendar.current.date(byAdding: .day, value: day, to: Date())!
+        return Calendar.current.date(bySettingHour: hour, minute: 45, second: 0, of: base)!
+    }
+
+    func task(_ id: String, _ title: String, due: Date?, hasTime: Bool = true, repeating: Bool = false) -> TaskItem {
+        TaskItem(
+            id: id, title: title, notes: nil, isCompleted: false, priority: .none,
+            dueDate: due, hasTime: hasTime, startDate: nil, isRepeating: repeating,
+            listID: "work", listTitle: "Work", listColor: nil
+        )
+    }
+
+    let rows = [
+        task("1", "Book Hours", due: at(17), repeating: true),
+        task("2", "Check on Groceries for the weekend", due: at(9), hasTime: false, repeating: true),
+        task("3", "Review the Q3 deck before standup", due: at(11)),
+        task("4", "Reply to the vendor thread", due: at(8, day: -1)),
+        task("5", "Renew the domain", due: nil),
+        task("6", "Draft the offsite agenda", due: at(14, day: 3)),
+    ]
+
+    func entry(_ filter: TaskFilter, _ items: [TaskItem], add: Bool = true) -> FilterEntry {
+        FilterEntry(date: Date(), filter: filter, items: items, status: .ok, showsAddButton: add)
+    }
+
+    widgetSnapshot(entry(today, Array(rows.prefix(2))), family: .systemSmall, named: "widget-small")
+    widgetSnapshot(entry(today, Array(rows.prefix(1))), family: .systemMedium, named: "widget-medium-one")
+    widgetSnapshot(entry(today, rows), family: .systemMedium, named: "widget-medium-full")
+    widgetSnapshot(entry(later, rows), family: .systemLarge, named: "widget-large")
+    widgetSnapshot(entry(today, []), family: .systemMedium, named: "widget-empty")
+    widgetSnapshot(entry(today, []), family: .systemSmall, named: "widget-empty-small")
+    widgetSnapshot(entry(later, []), family: .systemLarge, named: "widget-empty-large")
+    widgetSnapshot(
+        FilterEntry(date: Date(), filter: today, items: [], status: .awaitingApp, showsAddButton: false),
+        family: .systemMedium, named: "widget-awaiting-app"
+    )
+    widgetSnapshot(
+        FilterEntry(
+            date: Date(), filter: today, items: Array(rows.prefix(3)),
+            status: .stale(since: Date().addingTimeInterval(-60 * 60 * 9)), showsAddButton: true
+        ),
+        family: .systemMedium, named: "widget-stale"
+    )
+    widgetSnapshot(entry(today, Array(rows.prefix(3)), add: false), family: .systemSmall, named: "widget-small-no-add")
+}
+
+// MARK: - Filter editor
+
+MainActor.assumeIsolated {
+    // The nested case: work lists, and (overdue OR high priority) — the shape
+    // the whole AND/OR builder exists for.
+    var nested = TaskFilter(
+        name: "Work — Needs Attention", symbolName: "exclamationmark.triangle.fill", tint: .orange,
+        root: .all([
+            .rule(.list, .isAnyOf, .lists(["2"])),
+            .group(.any([
+                .rule(.dueDate, .isOverdue),
+                .rule(.priority, .isAtLeast, .priority(.high)),
+            ])),
+        ])
+    )
+    let tasks = [
+        TaskItem(
+            id: "a", title: "Reply to the vendor thread", notes: nil, isCompleted: false,
+            priority: .none, dueDate: Date().addingTimeInterval(-86_400), hasTime: true,
+            startDate: nil, isRepeating: false,
+            listID: "2", listTitle: "Work", listColor: nil
+        ),
+        TaskItem(
+            id: "b", title: "Sign the renewal", notes: nil, isCompleted: false,
+            priority: .high, dueDate: Date().addingTimeInterval(86_400 * 9), hasTime: false,
+            startDate: nil, isRepeating: false,
+            listID: "2", listTitle: "Work", listColor: nil
+        ),
+    ]
+
+    snapshot(
+        FilterEditorView(
+            filter: Binding(get: { nested }, set: { nested = $0 }),
+            lists: sampleLists,
+            allTasks: tasks
+        )
+        .frame(width: 520, height: 700),
+        named: "filter-editor",
+        width: 520
+    )
+}
+
+MainActor.assumeIsolated {
+    // The day-offset editor, which only appears on relative date comparators.
+    var later = TaskFilter(
+        name: "Later", symbolName: "tray.full", tint: .purple,
+        root: .any([
+            .rule(.dueDate, .onOrAfter, .days(8)),
+            .rule(.dueDate, .doesNotExist),
+        ]),
+        sort: .dueDateAscending
+    )
+    snapshot(
+        FilterEditorView(
+            filter: Binding(get: { later }, set: { later = $0 }),
+            lists: sampleLists,
+            allTasks: []
+        )
+        .frame(width: 560, height: 430),
+        named: "filter-editor-days",
+        width: 560
+    )
+}
+
+MainActor.assumeIsolated {
+    var symbol = "sun.max.fill"
+    snapshot(
+        SymbolPickerView(symbolName: Binding(get: { symbol }, set: { symbol = $0 }), tint: .orange)
+            .padding(12)
+            .frame(width: 380),
+        named: "symbol-picker",
+        width: 380
+    )
 }

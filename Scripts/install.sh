@@ -35,14 +35,31 @@ xcodebuild -project QuickReminders.xcodeproj -scheme "$APP_NAME" \
 APP="$BUILD_DIR/Build/Products/Release/$APP_NAME.app"
 
 echo "==> Signing"
-# Innermost first: signing the app before its nested bundles would seal
-# contents that then change.
-find "$APP/Contents/Frameworks" -depth \
+# Innermost first: signing the app before its nested bundles would seal contents
+# that then change. Walk all of Contents rather than just Frameworks — Sparkle's
+# bundles live there, but the widget is an .appex under PlugIns.
+#
+# Sparkle's own bundles keep whatever entitlements they were built with; ours are
+# re-applied from source instead of preserved. Preserving would also carry over
+# the get-task-allow that the build injects, which has no business in an
+# installed copy.
+find "$APP/Contents" -depth \
   \( -name "*.framework" -o -name "*.app" -o -name "*.xpc" \) 2>/dev/null \
   | while read -r nested; do
-      codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$nested"
+      codesign --force --options runtime --timestamp \
+        --preserve-metadata=entitlements --sign "$SIGN_IDENTITY" "$nested"
     done
-codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
+
+# Signed with its entitlements, never without: strip them and the widget loses
+# its sandbox and App Group, which from the desktop looks exactly like a widget
+# that simply never loads.
+codesign --force --options runtime --timestamp \
+  --entitlements "$REPO_ROOT/QuickRemindersWidget/Resources/QuickRemindersWidget.entitlements" \
+  --sign "$SIGN_IDENTITY" "$APP/Contents/PlugIns/QuickRemindersWidget.appex"
+
+codesign --force --options runtime --timestamp \
+  --entitlements "$REPO_ROOT/QuickReminders/Resources/QuickReminders.entitlements" \
+  --sign "$SIGN_IDENTITY" "$APP"
 codesign --verify --deep --strict "$APP"
 
 echo "==> Installing to $DEST"

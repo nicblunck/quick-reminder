@@ -1,3 +1,4 @@
+import EventKit
 import AppKit
 import SwiftUI
 
@@ -7,6 +8,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let service = RemindersService()
     let preferences = Preferences()
     let updater = UpdaterService()
+    let filterStore = FilterStore()
+    /// The widgets cannot read EventKit themselves, so the app publishes for them.
+    private lazy var snapshotPublisher = WidgetSnapshotPublisher(
+        filters: { [filterStore] in filterStore.filters }
+    )
     /// Lazy, not built in `applicationDidFinishLaunching`: a `quickreminders://`
     /// URL is delivered during AppKit's window-restoration pass, which runs
     /// *before* that method, and touching a nil controller there traps.
@@ -22,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Held strongly: the status item vanishes if it is not retained.
     private var statusItem: NSStatusItem!
     private var settingsWindow: NSWindow?
+    private var filtersWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setUpStatusItem()
@@ -39,6 +46,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else if service.access == .granted {
                 service.loadLists()
             }
+            // Seeded once access is settled, so the Filters tab and the widget
+            // gallery are never an empty page on a first run.
+            filterStore.seedIfEmpty()
+            await snapshotPublisher.refresh()
+        }
+
+        // Editing a filter changes what the widget should show, not merely when.
+        filterStore.onChange = { [weak self] in self?.snapshotPublisher.setNeedsRefresh() }
+        observeReminderChanges()
+        snapshotPublisher.startWatchingContainer()
+    }
+
+    /// Widget timelines are scheduled half-hourly, which is far too slow to feel
+    /// live when a reminder is ticked off in Reminders.app. The app is running
+    /// anyway, so it re-publishes whenever the store changes.
+    private func observeReminderChanges() {
+        NotificationCenter.default.addObserver(
+            forName: .EKEventStoreChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.snapshotPublisher.setNeedsRefresh() }
         }
     }
 
@@ -81,6 +108,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         checkForUpdates.isEnabled = updater.canCheckForUpdates
         menu.addItem(checkForUpdates)
 
+        let filters = NSMenuItem(
+            title: "Filters…", action: #selector(openFiltersAction), keyEquivalent: "f"
+        )
+        filters.target = self
+        menu.addItem(filters)
+
         let settings = NSMenuItem(
             title: "Settings…", action: #selector(openSettingsAction), keyEquivalent: ","
         )
@@ -110,6 +143,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         openSettings()
     }
 
+    @objc private func openFiltersAction() {
+        openFilters()
+    }
+
     @objc private func quitApp() {
         NSApplication.shared.terminate(nil)
     }
@@ -123,7 +160,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let hosting = NSHostingController(
-            rootView: SettingsView(service: service, preferences: preferences, updater: updater)
+            rootView: SettingsView(
+                service: service, preferences: preferences, updater: updater,
+                openFilters: { [weak self] in self?.openFilters() }
+            )
         )
         let window = NSWindow(contentViewController: hosting)
         window.title = "Quick Reminders Settings"
@@ -134,6 +174,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.center()
         window.makeKeyAndOrderFront(nil)
         settingsWindow = window
+    }
+
+    /// Filters get a window of their own: a condition tree beside a list of
+    /// filters needs far more room than the settings form, and cramming both
+    /// into one window forces the settings pane to be as wide as the widest
+    /// thing in it.
+    private func openFilters() {
+        NSApp.activate(ignoringOtherApps: true)
+
+        if let filtersWindow {
+            filtersWindow.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let hosting = NSHostingController(
+            rootView: FiltersSettingsView(store: filterStore, service: service)
+        )
+        let window = NSWindow(contentViewController: hosting)
+        window.title = "Filters"
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        // Kept alive so reopening restores the same window, and the selected
+        // filter with it.
+        window.isReleasedWhenClosed = false
+        window.setContentSize(NSSize(width: 900, height: 600))
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        filtersWindow = window
     }
 
     // MARK: - Entry points
@@ -147,6 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///   `quickreminders://new?text=call+dentist+tomorrow+5pm`  opens the panel, pre-filled
     ///   `quickreminders://add?text=call+dentist+tomorrow+5pm`  saves straight away, no UI
     ///   `quickreminders://settings`                            opens settings
+    ///   `quickreminders://filters`                             opens the filters window
     ///
     /// A failed silent add falls back to opening the panel with the text intact,
     /// so nothing the user typed is ever lost.
@@ -160,6 +228,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             silentAdd(text)
         case "settings":
             openSettings()
+        case "filters":
+            openFilters()
         default:
             showPanel(prefill: text)
         }

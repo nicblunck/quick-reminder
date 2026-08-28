@@ -1,10 +1,17 @@
 import KeyboardShortcuts
 import SwiftUI
 
+/// A plain settings form, self-sizing, no sidebar.
+///
+/// Filters live in their own window rather than a pane here: they need far more
+/// room than a settings form, and an AppKit app cannot produce a convincing
+/// System Settings sidebar anyway — it has no SwiftUI `App` to hang the built-in
+/// `Settings` scene off.
 struct SettingsView: View {
     let service: RemindersService
     let preferences: Preferences
     let updater: UpdaterService
+    let openFilters: () -> Void
 
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
 
@@ -59,6 +66,12 @@ struct SettingsView: View {
                     ),
                     displayedComponents: .hourAndMinute
                 )
+            }
+
+            Section("Widgets") {
+                LabeledContent("Filters") {
+                    Button("Edit Filters…", action: openFilters)
+                }
             }
 
             Section("Updates") {

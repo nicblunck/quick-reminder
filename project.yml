@@ -43,6 +43,10 @@ targets:
     dependencies:
       - package: KeyboardShortcuts
       - package: Sparkle
+      # Copied into Contents/PlugIns. The app is the only thing that installs
+      # the widget, so the extension is never built or shipped on its own.
+      - target: QuickRemindersWidget
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nicolasblunck.QuickReminders
@@ -54,6 +58,34 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         COMBINE_HIDPI_IMAGES: YES
 
+  # The desktop widgets. Sandboxed (extensions always are) even though the app
+  # is not, so everything shared with it travels through the App Group rather
+  # than through the app's own container.
+  QuickRemindersWidget:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: QuickRemindersWidget
+        excludes:
+          - "Resources/Info.plist"
+          - "Resources/QuickRemindersWidget.entitlements"
+      # Compiled in rather than shared through a framework: an embedded
+      # framework would need its own signing and versioning for six small files.
+      - path: QuickReminders/Filters
+      - path: QuickReminders/Model/ReminderDraft.swift
+        type: file
+      - path: QuickReminders/Services/ReminderWriter.swift
+        type: file
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nicolasblunck.QuickReminders.Widget
+        PRODUCT_NAME: QuickRemindersWidget
+        INFOPLIST_FILE: QuickRemindersWidget/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: QuickRemindersWidget/Resources/QuickRemindersWidget.entitlements
+        ENABLE_APP_SANDBOX: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+        SKIP_INSTALL: YES
+
   # The parser is pure Foundation, so the model sources compile straight into the
   # test bundle. That keeps `xcodebuild test` from having to launch the menu bar app.
   QuickRemindersTests:
@@ -62,6 +94,10 @@ targets:
     sources:
       - QuickRemindersTests
       - QuickReminders/Model
+      - QuickReminders/Filters
+      # ListColor and ReminderList, which TaskItem is built out of.
+      - path: QuickReminders/Services/ReminderWriter.swift
+        type: file
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nicolasblunck.QuickRemindersTests
@@ -85,6 +121,20 @@ targets:
       - QuickReminders/Views/TimePopoverView.swift
       - QuickReminders/Views/PriorityMarksView.swift
       - QuickReminders/Views/QuickEntryView.swift
+      - QuickReminders/Views/Filters/SymbolPickerView.swift
+      - QuickReminders/Views/Filters/ConditionEditorView.swift
+      - QuickReminders/Views/Filters/FilterEditorView.swift
+      - QuickReminders/Filters
+      # The widget views, minus the bundle file — its `@main` would fight the
+      # tool's own entry point.
+      - path: QuickRemindersWidget/FilterWidgetView.swift
+        type: file
+      - path: QuickRemindersWidget/FilterTimelineProvider.swift
+        type: file
+      - path: QuickRemindersWidget/SelectFilterIntent.swift
+        type: file
+      - path: QuickRemindersWidget/CompleteTaskIntent.swift
+        type: file
       - Snapshot
     settings:
       base:
