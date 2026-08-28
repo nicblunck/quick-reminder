@@ -1,15 +1,24 @@
 #!/bin/bash
-# Build, sign, notarize and publish a release.
+# Build, sign and stage a release.
 #
 #   Scripts/release.sh 1.1
 #
+# Distribution is Homebrew-only, and the build is deliberately NOT notarised:
+#
+#   * Homebrew quarantines what it downloads, so the cask clears the attribute
+#     in a postflight. Gatekeeper never assesses the app, and notarisation
+#     would buy nothing.
+#   * Sparkle fetches updates over URLSession, which does not quarantine
+#     either, so self-updates are unaffected by the same reasoning.
+#
+# The trade is real: a build that arrives any other way — AirDrop, a browser
+# download, a USB stick — WILL be refused by Gatekeeper. Homebrew is the
+# supported way in, on every machine.
+#
 # Prerequisites, all one-time:
 #   * A "Developer ID Application" certificate in the login keychain.
-#   * A notarytool keychain profile named by NOTARY_PROFILE below, created with:
-#       xcrun notarytool store-credentials "QuickReminders" \
-#         --apple-id <your-apple-id> --team-id <TEAM> --password <app-specific-password>
-#     Run that yourself — it stores an app-specific password in your keychain.
 #   * The Sparkle EdDSA private key in the login keychain (already present).
+#   * The tap tapped locally: brew tap nicblunck/tap
 set -euo pipefail
 
 VERSION="${1:-}"
@@ -20,11 +29,17 @@ fi
 
 SIGN_IDENTITY="Developer ID Application"
 TEAM_ID="U4K77TMBRU"
-NOTARY_PROFILE="QuickReminders"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$REPO_ROOT/.release"
 APP_NAME="QuickReminders"
-ZIP="$BUILD_DIR/$APP_NAME-$VERSION.zip"
+# Where `brew tap nicblunck/tap` clones to, so the cask is edited and pushed
+# from the same checkout Homebrew reads. Override with TAP_DIR=... if needed.
+TAP_DIR="${TAP_DIR:-$(brew --repository nicblunck/tap 2>/dev/null)}"
+# generate_appcast treats its argument as a flat directory of update archives,
+# and writes delta files and old_updates/ into it. Keep it well away from the
+# build tree so it never walks the derived data.
+ARCHIVES="$BUILD_DIR/archives"
+ZIP="$ARCHIVES/$APP_NAME-$VERSION.zip"
 
 SPARKLE_BIN="$(find ~/Library/Developer/Xcode/DerivedData/QuickReminders-*/SourcePackages/artifacts/sparkle/Sparkle/bin \
   -name generate_appcast -maxdepth 1 2>/dev/null | head -1)"
@@ -36,7 +51,7 @@ xcodegen generate
 
 echo "==> Building $VERSION"
 rm -rf "$BUILD_DIR"
-mkdir -p "$BUILD_DIR"
+mkdir -p "$ARCHIVES"
 xcodebuild -project QuickReminders.xcodeproj -scheme QuickReminders \
   -configuration Release -destination 'platform=macOS' \
   -derivedDataPath "$BUILD_DIR/dd" \
@@ -48,38 +63,99 @@ xcodebuild -project QuickReminders.xcodeproj -scheme QuickReminders \
 APP="$BUILD_DIR/dd/Build/Products/Release/$APP_NAME.app"
 
 # Nested code must be signed before the app that contains it, innermost first,
-# or the outer signature seals a bundle whose contents then change.
+# or the outer signature seals a bundle whose contents then change. Walk all of
+# Contents, not just Frameworks: Sparkle ships four bundles there (Updater.app,
+# its versioned twin, Downloader.xpc, Installer.xpc) but the widget is an .appex
+# under PlugIns, and the build signs it without hardened runtime or a timestamp.
 echo "==> Signing"
-find "$APP/Contents/Frameworks" -depth \
-  \( -name "*.framework" -o -name "*.app" -o -name "*.xpc" \) 2>/dev/null \
+find "$APP/Contents" -depth \
+  \( -name "*.framework" -o -name "*.app" -o -name "*.xpc" -o -name "*.appex" \) 2>/dev/null \
   | while read -r nested; do
-      codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$nested"
+      codesign --force --options runtime --timestamp \
+        --preserve-metadata=entitlements --sign "$SIGN_IDENTITY" "$nested"
     done
-codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
+# --preserve-metadata=entitlements, or this re-sign would silently strip them:
+# the widget would lose its sandbox and App Group, and the app its half of the
+# same group, leaving the two unable to share a container. Preserving what the
+# build computed also keeps Release's stripped get-task-allow stripped.
+codesign --force --options runtime --timestamp \
+  --preserve-metadata=entitlements --sign "$SIGN_IDENTITY" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 
-echo "==> Notarizing"
+# The signature is timestamped so it stays valid past the certificate's own
+# expiry, and Sparkle refuses an update whose signing identity differs from the
+# running app's — so this identity must not change between releases.
+echo "==> Archiving"
 ditto -c -k --keepParent "$APP" "$ZIP"
-xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
-# Staple the app, then re-zip: the ticket has to be inside the archive people download.
-xcrun stapler staple "$APP"
-rm -f "$ZIP"
-ditto -c -k --keepParent "$APP" "$ZIP"
-xcrun stapler validate "$APP"
 
 echo "==> Updating appcast"
-# generate_appcast signs each archive with the EdDSA key from the keychain and
-# rewrites appcast.xml in place.
+# generate_appcast only extends a feed it finds inside the archives directory,
+# and that directory is rebuilt from scratch on every run — so seed it with the
+# published appcast, or each release would advertise a feed of one lone version.
+if [[ -f "$REPO_ROOT/appcast.xml" ]]; then
+  cp "$REPO_ROOT/appcast.xml" "$ARCHIVES/"
+fi
+
+# It signs each archive with the EdDSA key from the login keychain.
 "$SPARKLE_BIN/generate_appcast" \
   --download-url-prefix "https://github.com/nicblunck/quick-reminder/releases/download/v$VERSION/" \
   -o "$REPO_ROOT/appcast.xml" \
-  "$BUILD_DIR"
+  "$ARCHIVES"
+
+echo "==> Rendering cask"
+SHA="$(shasum -a 256 "$ZIP" | awk '{print $1}')"
+CASK="$BUILD_DIR/quickreminders.rb"
+cat > "$CASK" <<'CASK_EOF'
+cask "quickreminders" do
+  version "__VERSION__"
+  sha256 "__SHA__"
+
+  url "https://github.com/nicblunck/quick-reminder/releases/download/v#{version}/QuickReminders-#{version}.zip"
+  name "Quick Reminders"
+  desc "Menu bar capture tool for Apple Reminders"
+  homepage "https://github.com/nicblunck/quick-reminder"
+
+  # The app updates itself through Sparkle. Without this, Homebrew would keep
+  # offering upgrades for a copy Sparkle has already replaced, and the two
+  # would fight over the same bundle.
+  auto_updates true
+  depends_on macos: :tahoe
+
+  app "QuickReminders.app"
+
+  # The build is not notarised. Homebrew quarantines what it downloads and
+  # Gatekeeper refuses to launch an unnotarised quarantined app, so clear the
+  # attribute here. This is precisely why installing by hand does not work.
+  postflight do
+    system_command "/usr/bin/xattr",
+                   args: ["-dr", "com.apple.quarantine", "#{appdir}/QuickReminders.app"]
+  end
+
+  zap trash: [
+    "~/Library/Caches/com.nicolasblunck.QuickReminders",
+    "~/Library/Preferences/com.nicolasblunck.QuickReminders.plist",
+  ]
+end
+CASK_EOF
+sed -i '' "s|__VERSION__|$VERSION|; s|__SHA__|$SHA|" "$CASK"
+
+if [[ -d "$TAP_DIR/Casks" ]]; then
+  cp "$CASK" "$TAP_DIR/Casks/quickreminders.rb"
+  echo "    wrote $TAP_DIR/Casks/quickreminders.rb"
+  TAP_NOTE="  cd '$TAP_DIR' && git add Casks/quickreminders.rb && git commit -m 'quickreminders $VERSION' && git push"
+else
+  echo "    tap not found at $TAP_DIR — cask left at $CASK"
+  TAP_NOTE="  # clone the tap, then copy $CASK into its Casks/ and push"
+fi
 
 echo
-echo "Built and notarized: $ZIP"
+echo "Built and signed: $ZIP"
+echo "sha256: $SHA"
 echo
 echo "Remaining steps, deliberately manual so nothing is published by accident:"
 echo "  gh release create v$VERSION '$ZIP' --title 'v$VERSION' --notes '...'"
 echo "  git add appcast.xml && git commit -m 'Release $VERSION' && git push"
+echo "$TAP_NOTE"
 echo
-echo "Sparkle reads appcast.xml from main, so the release must exist before the push."
+echo "Create the GitHub release FIRST — both the appcast and the cask point at"
+echo "its download URL, and neither is any use until that asset exists."
