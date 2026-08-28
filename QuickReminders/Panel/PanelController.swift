@@ -15,6 +15,9 @@ struct PanelContext {
 final class PanelController: NSObject, NSWindowDelegate {
 
     private var panel: QuickEntryPanel?
+    /// The SwiftUI host, kept because it — not the glass backdrop wrapping it —
+    /// is the only view that can say how big the card wants to be.
+    private weak var hosting: NSView?
     private let makeContent: (PanelContext) -> AnyView
     private var pendingPrefill = ""
     private var isDismissing = false
@@ -57,10 +60,10 @@ final class PanelController: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         // Fade and rise into place. Deliberately no scale: AppKit cannot scale a
-        // window, and doing it in SwiftUI needs a transparent margin around the
-        // card — which in turn exposes the window's own frame as an outline and
-        // confuses the shadow's alpha mask. Travel and easing carry the motion
-        // instead, and both are things AppKit animates cleanly.
+        // window, and scaling the card in SwiftUI instead would shrink it away
+        // from the shape AppKit derived the shadow from, so the shadow would hang
+        // in place at full size while the card moved. Travel and easing carry the
+        // motion instead, and both are things AppKit animates cleanly.
         // Position only — the opacity is deliberately NOT animated. Every frame
         // of an alphaValue change makes the Liquid Glass material re-sample its
         // backdrop, which reads as flicker. It was always there; a longer
@@ -115,11 +118,15 @@ final class PanelController: NSObject, NSWindowDelegate {
         // The Liquid Glass backdrop for the whole window, and the one thing that
         // gives the panel its shape. SwiftUI draws only content on top of it —
         // no material, no rounding, no shadow there.
-        let backdrop = NSVisualEffectView()
-        backdrop.material = .hudWindow
-        backdrop.blendingMode = .behindWindow
-        backdrop.state = .active
-        backdrop.maskImage = QuickEntryPanel.backdropMask()
+        //
+        // This has to be a glass view rather than an `NSVisualEffectView`: the
+        // visual effect materials only blur what is behind them, so the rim comes
+        // out flat. Glass additionally refracts the backdrop through the edge and
+        // lights it, which is the whole difference between frosted and glass.
+        // Shape is a property here, so no mask image is involved.
+        let backdrop = NSGlassEffectView()
+        backdrop.cornerRadius = QuickEntryPanel.cornerRadius
+        backdrop.style = .regular
 
         let hosting = NSHostingView(
             rootView: makeContent(
@@ -135,15 +142,12 @@ final class PanelController: NSObject, NSWindowDelegate {
         // have; without this an inset would leave an empty strip above the content.
         hosting.safeAreaRegions = []
         hosting.translatesAutoresizingMaskIntoConstraints = false
-        backdrop.addSubview(hosting)
-        NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: backdrop.topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor),
-        ])
+        // The glass view sizes and clips whatever it is handed, so the content
+        // goes through `contentView` rather than being added as a plain subview.
+        backdrop.contentView = hosting
+        self.hosting = hosting
 
-        panel.contentView = backdrop
+        panel.contentView = PanelCardView(card: backdrop)
         panel.delegate = self
         panel.onCancel = { [weak self] in self?.reset() }
         return panel
@@ -151,14 +155,23 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     /// SwiftUI decides the card's height (notes and URL fields expand it), so ask
     /// the hosting view what it wants before placing the window.
+    ///
+    /// It has to be the hosting view specifically, not the window's content view.
+    /// The glass backdrop stretches whatever it is given to its own bounds, so its
+    /// fitting size answers for the glass alone and comes back near nothing —
+    /// which collapses the window to a stub.
     private func sizeToFit(_ panel: NSPanel) {
-        guard let content = panel.contentView else { return }
+        guard let content = hosting else { return }
         content.layoutSubtreeIfNeeded()
         let size = content.fittingSize
         guard size.width > 0, size.height > 0 else { return }
-        panel.setContentSize(size)
-        // Without this the shadow keeps the previous size's outline.
-        panel.invalidateShadow()
+        // The card is what SwiftUI measured; the window also carries the margin
+        // the shadow falls into.
+        let inset = QuickEntryPanel.cardInset * 2
+        panel.setContentSize(
+            NSSize(width: size.width + inset, height: size.height + inset)
+        )
+
     }
 
     /// Centred horizontally on whichever screen holds the pointer, sitting a
