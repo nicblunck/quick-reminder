@@ -68,18 +68,27 @@ APP="$BUILD_DIR/dd/Build/Products/Release/$APP_NAME.app"
 # its versioned twin, Downloader.xpc, Installer.xpc) but the widget is an .appex
 # under PlugIns, and the build signs it without hardened runtime or a timestamp.
 echo "==> Signing"
+# Sparkle's own bundles keep the entitlements they were built with.
 find "$APP/Contents" -depth \
-  \( -name "*.framework" -o -name "*.app" -o -name "*.xpc" -o -name "*.appex" \) 2>/dev/null \
+  \( -name "*.framework" -o -name "*.app" -o -name "*.xpc" \) 2>/dev/null \
   | while read -r nested; do
       codesign --force --options runtime --timestamp \
         --preserve-metadata=entitlements --sign "$SIGN_IDENTITY" "$nested"
     done
-# --preserve-metadata=entitlements, or this re-sign would silently strip them:
-# the widget would lose its sandbox and App Group, and the app its half of the
-# same group, leaving the two unable to share a container. Preserving what the
-# build computed also keeps Release's stripped get-task-allow stripped.
+
+# Ours are re-applied from source rather than preserved. Preserving would carry
+# over the get-task-allow the build injects, which lets anything attach a
+# debugger to a shipped app — the one thing notarisation used to catch here, and
+# nothing catches now. Signing from the files also guarantees the widget keeps
+# its sandbox and App Group; strip those and it looks, from the desktop, exactly
+# like a widget that never loads.
 codesign --force --options runtime --timestamp \
-  --preserve-metadata=entitlements --sign "$SIGN_IDENTITY" "$APP"
+  --entitlements "$REPO_ROOT/QuickRemindersWidget/Resources/QuickRemindersWidget.entitlements" \
+  --sign "$SIGN_IDENTITY" "$APP/Contents/PlugIns/QuickRemindersWidget.appex"
+
+codesign --force --options runtime --timestamp \
+  --entitlements "$REPO_ROOT/QuickReminders/Resources/QuickReminders.entitlements" \
+  --sign "$SIGN_IDENTITY" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 
 # The signature is timestamped so it stays valid past the certificate's own

@@ -1,0 +1,14 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>QuickReminders</title>
+        <item>
+            <title>1.1</title>
+            <pubDate>Fri, 28 Aug 2026 13:32:30 +0900</pubDate>
+            <sparkle:version>1.1</sparkle:version>
+            <sparkle:shortVersionString>1.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/nicblunck/quick-reminder/releases/download/v1.1/QuickReminders-1.1.zip" length="4593323" type="application/octet-stream" sparkle:edSignature="Buur53Z7pjls7cgrnKo8z1Tmf6RflEJTLhrG5m5xABlQbwVbQvGrAxkYaj8loALAHcRT8BoTU3YEESKZiOLCAw=="/>
+        </item>
+    </channel>
+</rss>
