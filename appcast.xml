@@ -3,6 +3,14 @@
     <channel>
         <title>QuickReminders</title>
         <item>
+            <title>1.2</title>
+            <pubDate>Fri, 28 Aug 2026 14:29:45 +0900</pubDate>
+            <sparkle:version>1.2</sparkle:version>
+            <sparkle:shortVersionString>1.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/nicblunck/quick-reminder/releases/download/v1.2/QuickReminders-1.2.zip" length="4596129" type="application/octet-stream" sparkle:edSignature="RB5e5Vdv8yshUQBqIZ8cZRLFdrq5s/BtEq6i8/+HmKo3KN/OScfzce0PKL+uhpGWDB3sAoZfhwwDUGnAel3gDg=="/>
+        </item>
+        <item>
             <title>1.1</title>
             <pubDate>Fri, 28 Aug 2026 13:32:30 +0900</pubDate>
             <sparkle:version>1.1</sparkle:version>
