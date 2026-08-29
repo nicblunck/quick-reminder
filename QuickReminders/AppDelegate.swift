@@ -13,6 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var snapshotPublisher = WidgetSnapshotPublisher(
         filters: { [filterStore] in filterStore.filters }
     )
+    /// Keeps the half-hourly backstop republish alive for the app's lifetime.
+    private var periodicRefresh: Timer?
     /// Lazy, not built in `applicationDidFinishLaunching`: a `quickreminders://`
     /// URL is delivered during AppKit's window-restoration pass, which runs
     /// *before* that method, and touching a nil controller there traps.
@@ -55,6 +57,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Editing a filter changes what the widget should show, not merely when.
         filterStore.onChange = { [weak self] in self?.snapshotPublisher.setNeedsRefresh() }
         observeReminderChanges()
+        observeWake()
+        startPeriodicRefresh()
         snapshotPublisher.startWatchingContainer()
     }
 
@@ -64,6 +68,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func observeReminderChanges() {
         NotificationCenter.default.addObserver(
             forName: .EKEventStoreChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.snapshotPublisher.setNeedsRefresh() }
+        }
+    }
+
+    /// A sleeping Mac publishes nothing, and waking is not a change to anything
+    /// the app already watches — so without this the snapshot keeps the age it
+    /// had when the machine went to sleep. Overnight that is enough to cross the
+    /// six-hour staleness line, and the widget reports itself out of date on a
+    /// list that is in fact still correct.
+    private func observeWake() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.snapshotPublisher.setNeedsRefresh() }
+        }
+    }
+
+    /// The backstop for a quiet day: publishing is driven by changes, staleness
+    /// by the clock, so a stretch with no edits ages the snapshot out on its own.
+    /// Half-hourly matches the widgets' own timeline cadence.
+    private func startPeriodicRefresh() {
+        periodicRefresh = Timer.scheduledTimer(
+            withTimeInterval: 30 * 60, repeats: true
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.snapshotPublisher.setNeedsRefresh() }
         }
