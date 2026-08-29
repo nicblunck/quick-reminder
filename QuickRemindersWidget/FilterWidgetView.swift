@@ -76,8 +76,10 @@ struct FilterWidgetView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .clipped()
         .containerBackground(.background, for: .widget)
-        // Anywhere that is not a circle, a title or the add button.
-        .widgetURL(URL(string: "x-apple-reminderkit://"))
+        // Anywhere that is not a circle, a title or the add button. Routed
+        // through our own scheme because a widget's URL is handed to its own
+        // app, not opened system-wide.
+        .widgetURL(URL(string: "quickreminders://reminders"))
     }
 
     // MARK: - Header
@@ -310,7 +312,7 @@ private struct TaskRow: View {
             // Opens this reminder in Reminders.app. A Link rather than the
             // widget-wide URL so the row you actually clicked is the one that
             // opens.
-            Link(destination: item.remindersURL) {
+            Link(destination: item.widgetLinkURL) {
                 HStack(alignment: .top, spacing: 8) {
                     Text(item.title)
                         .font(.system(size: 14))

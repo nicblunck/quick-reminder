@@ -216,10 +216,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///   `quickreminders://settings`                            opens settings
     ///   `quickreminders://filters`                             opens the filters window
     ///
+    /// Plus the two the widgets send. A widget's `Link` is delivered here
+    /// rather than opened system-wide, so opening Reminders is our job:
+    ///
+    ///   `quickreminders://reminder?id=<externalID>`            one reminder in Reminders.app
+    ///   `quickreminders://reminders`                           Reminders.app itself
+    ///
     /// A failed silent add falls back to opening the panel with the text intact,
     /// so nothing the user typed is ever lost.
     func application(_ application: NSApplication, open urls: [URL]) {
-        guard let url = urls.first, url.scheme == "quickreminders" else { return }
+        guard let url = urls.first else { return }
+
+        // A widget keeps rendering the snapshot it was last given, so after an
+        // update the links on screen can still be the previous build's — which
+        // pointed straight at Reminders. Those arrive here too, since a widget's
+        // link goes to its own app whatever the scheme, so open them rather than
+        // dropping them. Only Reminders' scheme: the app is not a general relay.
+        guard url.scheme == "quickreminders" else {
+            if url.scheme == "x-apple-reminderkit" { Self.openInReminders(url) }
+            return
+        }
         let text = URLComponents(url: url, resolvingAgainstBaseURL: false)?
             .queryItems?.first { $0.name == "text" }?.value ?? ""
 
@@ -230,8 +246,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openSettings()
         case "filters":
             openFilters()
+        case "reminder", "reminders":
+            let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "id" }?.value
+            Self.openInReminders(TaskItem.remindersURL(externalID: id))
         default:
             showPanel(prefill: text)
+        }
+    }
+
+    /// Opens a Reminders link — twice.
+    ///
+    /// Reminders swallows the first link to a reminder whose list sits inside a
+    /// collapsed folder in its sidebar: nothing moves, and the link looks dead.
+    /// Sent a second time a beat later it lands, folder still collapsed. Gaps
+    /// from 0.6s up work; below that the two opens coalesce and neither takes.
+    /// Harmless for a list that is already visible — the second open is a no-op.
+    private static func openInReminders(_ url: URL) {
+        NSWorkspace.shared.open(url)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
+            NSWorkspace.shared.open(url)
         }
     }
 

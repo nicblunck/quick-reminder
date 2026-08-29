@@ -34,11 +34,24 @@ struct TaskItem: Identifiable, Hashable, Sendable, Codable {
 
     /// Opens this reminder in Reminders.app, or just the app itself when the
     /// identifier is missing.
-    var remindersURL: URL {
+    var remindersURL: URL { Self.remindersURL(externalID: externalID) }
+
+    static func remindersURL(externalID: String?) -> URL {
         guard let externalID, !externalID.isEmpty,
               let url = URL(string: "x-apple-reminderkit://REMCDReminder/\(externalID)")
         else { return URL(string: "x-apple-reminderkit://")! }
         return url
+    }
+
+    /// What a widget row links to. A widget's link is delivered to its *own*
+    /// app rather than opened system-wide, so it has to travel through our own
+    /// scheme; `AppDelegate` turns it back into `remindersURL` and opens that.
+    var widgetLinkURL: URL {
+        guard let externalID, !externalID.isEmpty,
+              var components = URLComponents(string: "quickreminders://reminder")
+        else { return URL(string: "quickreminders://reminders")! }
+        components.queryItems = [URLQueryItem(name: "id", value: externalID)]
+        return components.url ?? URL(string: "quickreminders://reminders")!
     }
 
     var isScheduled: Bool { dueDate != nil || startDate != nil }
